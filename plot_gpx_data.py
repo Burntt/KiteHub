@@ -84,7 +84,7 @@ m = folium.Map(location=coordinates[0], zoom_start=12)
 # Correctly segment the route based on speed
 for i in range(1, len(coordinates)):
     # Check if there's a speed value for the segment and assign color
-    segment_color = 'red' if speeds[i-1] < speed_threshold else 'blue'
+    segment_color = 'blue' if speeds[i-1] < speed_threshold else 'red'
     folium.PolyLine(coordinates[i-1:i+1], color=segment_color, weight=2.5).add_to(m)
 
 # Calculate statistics after ensuring there are speeds recorded
