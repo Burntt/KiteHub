@@ -117,7 +117,6 @@ start_point = coordinates[0]
 end_point = coordinates[-1]
 bearing = calculate_bearing(start_point[0], start_point[1], end_point[0], end_point[1])
 
-
 # Calculate the offset position for the wind direction icon
 offset_lat, offset_lon = calculate_new_point(midpoint_location[0], midpoint_location[1], bearing + 90, -7)  # 2 km to the side
 
@@ -145,23 +144,23 @@ plugins.PolyLineTextPath(
 ).add_to(m)
 
 
-# Save and show the map
-m.save('surfr_route_map_with_wind_direction.html')
-print("Map saved to surfr_route_map_with_wind_direction.html")
+print("Start Point:", start_point)  # Debug print
+print("End Point:", end_point)  # Debug print
 
-# Add markers with HTML popup for the start marker
-folium.Marker(
-    location=start_point,
+# Ensure these variables are tuples of (latitude, longitude)
+start_marker = folium.Marker(
+    location=start_point,  # Should be [latitude, longitude]
     popup='Start',
     icon=folium.Icon(color='green', icon='info-sign')
-).add_to(m)
+)
+start_marker.add_to(m)
 
-# Add end marker
-folium.Marker(
-    location=end_point,
+end_marker = folium.Marker(
+    location=end_point,  # Should be [latitude, longitude]
     popup='End',
     icon=folium.Icon(color='red')
-).add_to(m)
+)
+end_marker.add_to(m)
 
 # Save and show the map
 map_filename = 'surfr_route_map.html'

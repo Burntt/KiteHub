@@ -3,3 +3,4 @@ matplotlib
 mplleaflet
 numpy
 ipython
+folium
