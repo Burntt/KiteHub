@@ -1,19 +1,16 @@
 import gpxpy
 import folium
 import numpy as np
+import folium.plugins as plugins
+import math
 from math import radians, cos, sin, asin, sqrt
 
 gpx_file_name = 'GPX_data/Vilanova-Torredembarra.gpx'
+speed_threshold = 25 / 3.6  # Converting 30 km/h to m/s for comparison
 
 def haversine(lon1, lat1, lon2, lat2):
-    """
-    Calculate the great circle distance between two points 
-    on the earth (specified in decimal degrees)
-    """
-    # convert decimal degrees to radians
+    """Calculate the great circle distance between two points on the earth."""
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-
-    # haversine formula
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
@@ -21,12 +18,40 @@ def haversine(lon1, lat1, lon2, lat2):
     r = 6371  # Radius of Earth in kilometers
     return c * r
 
+def calculate_bearing(lat1, lon1, lat2, lon2):
+    """Calculate the compass bearing from one point to another."""
+    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+    dlon = lon2 - lon1
+    x = math.sin(dlon) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1) * math.cos(lat2) * math.cos(dlon))
+    initial_bearing = math.atan2(x, y)
+    initial_bearing = math.degrees(initial_bearing)
+    compass_bearing = (initial_bearing + 360) % 360
+    return compass_bearing
 
-# Load and parse the GPX file
+
+# Function to calculate a new point given a start point, bearing, and distance
+def calculate_new_point(lat, lon, bearing, distance):
+    R = 6378.1  # Radius of the Earth in kilometers
+    bearing = math.radians(bearing)  # Convert bearing to radians
+
+    lat1 = math.radians(lat)  # Current lat point converted to radians
+    lon1 = math.radians(lon)  # Current long point converted to radians
+
+    lat2 = math.asin(math.sin(lat1) * math.cos(distance / R) +
+                     math.cos(lat1) * math.sin(distance / R) * math.cos(bearing))
+
+    lon2 = lon1 + math.atan2(math.sin(bearing) * math.sin(distance / R) * math.cos(lat1),
+                             math.cos(distance / R) - math.sin(lat1) * math.sin(lat2))
+
+    lat2 = math.degrees(lat2)
+    lon2 = math.degrees(lon2)
+
+    return [lat2, lon2]
+
 with open(gpx_file_name, 'r') as gpx_file:
     gpx = gpxpy.parse(gpx_file)
 
-# Extract track information
 coordinates = []
 times = []
 speeds = []
@@ -35,115 +60,108 @@ for track in gpx.tracks:
         for point in segment.points:
             coordinates.append((point.latitude, point.longitude))
             times.append(point.time)
-            speed_value = None
             if point.extensions:
+                speed = None
                 for extension in point.extensions:
                     if extension.tag.endswith('speed'):
                         try:
-                            speed_value = float(extension.text)
+                            speed = float(extension.text)
                             break
                         except ValueError:
-                            print(f"Error converting speed to float: {extension.text}")
-                            speed_value = None
-            speeds.append(speed_value if speed_value is not None else 0)
+                            continue
+                speeds.append(speed if speed is not None else 0)
 
-# Extract date
-if times:
-    # Extracting the date from the first timestamp
-    start_date = times[0].strftime('%Y-%m-%d')
-else:
-    start_date = "Unknown Date"
+# Extract start and end locations from the file name
+_, file_name = gpx_file_name.rsplit('/', 1)
+start_location_name, end_location_name = file_name.replace('.gpx', '').split('-')
 
-# Compute midpoint
-total_distance = 0
-cumulative_distances = [0]
+# Extract date from the first timestamp
+start_date = times[0].strftime('%Y-%m-%d') if times else "Unknown Date"
 
-# Calculate total distance and cumulative distances
-for i in range(1, len(coordinates)):
-    distance = haversine(coordinates[i-1][1], coordinates[i-1][0],
-                         coordinates[i][1], coordinates[i][0])
-    total_distance += distance
-    cumulative_distances.append(total_distance)
-
-half_distance = total_distance / 2
-
-# Find the point nearest to half the total distance
-midpoint_index = 0
-for i, cumulative_distance in enumerate(cumulative_distances):
-    if cumulative_distance >= half_distance:
-        midpoint_index = i
-        break
-
-midpoint_location = coordinates[midpoint_index]
-
-
-
-# Create a folium map centered on the first coordinate
+# Prepare map
 m = folium.Map(location=coordinates[0], zoom_start=12)
 
-# Add track to the map
-folium.PolyLine(coordinates, color='blue', weight=2.5, opacity=1).add_to(m)
+# Correctly segment the route based on speed
+for i in range(1, len(coordinates)):
+    # Check if there's a speed value for the segment and assign color
+    segment_color = 'red' if speeds[i-1] < speed_threshold else 'blue'
+    folium.PolyLine(coordinates[i-1:i+1], color=segment_color, weight=2.5).add_to(m)
 
-# Calculate statistics
-avg_speed = np.mean(speeds) * 3.6  # Convert to km/h
-max_speed = np.max(speeds) * 3.6   # Convert to km/h
-total_distance = sum([segment.length_3d() for track in gpx.tracks for segment in track.segments]) / 1000  # km
-duration = (times[-1] - times[0]).total_seconds() / 3600  # hours
+# Calculate statistics after ensuring there are speeds recorded
+if speeds:
+    total_distance = sum(haversine(coordinates[i-1][1], coordinates[i-1][0], coordinates[i][1], coordinates[i][0]) for i in range(1, len(coordinates)))
+    avg_speed = np.mean(speeds) * 3.6  # Convert to km/h
+    max_speed = np.max(speeds) * 3.6   # Convert to km/h
+    duration = (times[-1] - times[0]).total_seconds() / 3600
+else:
+    total_distance, avg_speed, max_speed, duration = 0, 0, 0, 0
 
-# Statistics summary using HTML
-statistics_html = f"""
-<div style="font-size: 12pt; font-family: Arial, Helvetica, sans-serif;">
-<h4>Track Statistics</h4>
-<ul>
-    <li>Average Speed: {avg_speed:.2f} km/h</li>
-    <li>Max Speed: {max_speed:.2f} km/h</li>
-    <li>Total Distance: {total_distance:.2f} km</li>
-    <li>Duration: {duration:.2f} hours</li>
-    <li>Jump height: {10.1} meter</li>
-</ul>
+# Add title and statistics marker at the midpoint
+title_html = f'''
+<div style="background-color: #f9f9f9; border-radius: 6px; padding: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.5); width: 300px; transform: translateY(40px);">
+    <h4 style="color: #0078A8; margin:0;">Route from {start_location_name} to {end_location_name} on {start_date}</h4>
+    <p style="margin: 5px 0; font-size: 14px; color: #555;">
+        <strong>Distance:</strong> {total_distance:.2f} km<br>
+        <strong>Duration:</strong> {duration:.2f} hours<br>
+        <strong>Avg Speed:</strong> {avg_speed:.2f} km/h<br>
+        <strong>Max Speed:</strong> {max_speed:.2f} km/h<br>
+        <strong>Jump Height:</strong> {10.1} meter<br>
+    </p>
 </div>
-"""
+'''
+midpoint_location = coordinates[len(coordinates) // 2]
+folium.Marker(midpoint_location, icon=folium.DivIcon(html=title_html)).add_to(m)
+
+# Estimate wind direction
+start_point = coordinates[0]
+end_point = coordinates[-1]
+bearing = calculate_bearing(start_point[0], start_point[1], end_point[0], end_point[1])
+
+
+# Calculate the offset position for the wind direction icon
+offset_lat, offset_lon = calculate_new_point(midpoint_location[0], midpoint_location[1], bearing + 90, -7)  # 2 km to the side
+
+# Select the closest pre-rotated wind icon based on the calculated bearing
+icon_url = 'https://cdn-icons-png.flaticon.com/512/2045/2045893.png'
+icon_width, icon_height = 100, 100  # You can change these values as needed
+icon_anchor_center = (icon_width // 2, icon_height // 2)
+icon = folium.CustomIcon(icon_url, icon_size=(icon_width, icon_height), icon_anchor=icon_anchor_center)
+folium.Marker([offset_lat, offset_lon], icon=icon, tooltip=f'Wind Direction: {bearing:.0f}°').add_to(m)
+
+# Calculate the end point of the subtle dashed line extending from the wind icon
+point_line_end = calculate_new_point(offset_lat, offset_lon, bearing, 10)  # This should return a [lat, lon] pair
+
+# Draw the subtle dashed line for wind direction
+line_points = [[offset_lat, offset_lon], point_line_end]  # A list of coordinate pairs
+line = folium.PolyLine(line_points, color='gray', weight=5, opacity=0.75, dash_array='5').add_to(m)
+
+# Add an arrow to the line to indicate direction
+plugins.PolyLineTextPath(
+    line,
+    ' ►',  # The arrow symbol (you can also use '>', but '►' gives a more defined arrow)
+    repeat=True,
+    offset=8,  # You might need to adjust this offset depending on the weight of the line
+    attributes={'fill': 'gray', 'font-weight': 'bold', 'font-size': '24'}
+).add_to(m)
+
+
+# Save and show the map
+m.save('surfr_route_map_with_wind_direction.html')
+print("Map saved to surfr_route_map_with_wind_direction.html")
 
 # Add markers with HTML popup for the start marker
 folium.Marker(
-    location=coordinates[0],
-    popup='Start'),
+    location=start_point,
+    popup='Start',
     icon=folium.Icon(color='green', icon='info-sign')
 ).add_to(m)
 
 # Add end marker
 folium.Marker(
-    location=coordinates[-1],
+    location=end_point,
     popup='End',
     icon=folium.Icon(color='red')
 ).add_to(m)
-
-# Extracting the base name of the file (without the path)
-base_name = gpx_file_name.split('/')[-1]
-start_location_name, end_location_name = base_name.replace('.gpx', '').split('-')
-print(f"Start Location: {start_location_name}, End Location: {end_location_name}")
-
-title_html = f'''
-<div style="background-color: #f9f9f9; border-radius: 6px; padding: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.5); width: 300px; transform: translateY(40px);">
-    <h4 style="color: #0078A8; margin:0;">Route Information</h4>
-    <hr style="margin: 5px 0;">
-    <p style="margin: 5px 0; font-size: 14px; color: #555;">
-        <strong>From:</strong> {start_location_name}<br>
-        <strong>To:</strong> {end_location_name}<br>
-        <strong>Date:</strong> {start_date}<br>
-        <strong>Distance:</strong> {total_distance:.2f} km<br>
-        <strong>Duration:</strong> {duration:.2f} hours<br>
-        <strong>Avg Speed:</strong> {avg_speed:.2f} km/h<br>
-        <strong>Max Speed:</strong> {max_speed:.2f} km/h<br>
-        <strong>Jump Height:</strong> 10.1 meters
-    </p>
-</div>
-'''
-
-# Adding the title marker at the midpoint with the updated HTML for styling
-folium.Marker(midpoint_location, 
-              icon=folium.DivIcon(html=title_html)
-             ).add_to(m)
 
 # Save and show the map
 map_filename = 'surfr_route_map.html'
