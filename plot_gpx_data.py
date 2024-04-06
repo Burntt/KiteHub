@@ -4,6 +4,8 @@ import numpy as np
 import folium.plugins as plugins
 import math
 from math import radians, cos, sin, asin, sqrt
+from folium import IFrame
+
 
 gpx_file_name = 'GPX_data/Vilanova-Torredembarra.gpx'
 speed_threshold = 25 / 3.6  # Converting 30 km/h to m/s for comparison
@@ -111,6 +113,9 @@ title_html = f'''
 '''
 midpoint_location = coordinates[len(coordinates) // 2]
 folium.Marker(midpoint_location, icon=folium.DivIcon(html=title_html)).add_to(m)
+midpoint_html = IFrame(html=title_html, width=350, height=200)
+popup = folium.Popup(midpoint_html, max_width=2650)
+folium.Marker(midpoint_location, icon=folium.DivIcon(html=title_html), popup=popup).add_to(m)
 
 # Estimate wind direction
 start_point = coordinates[0]
@@ -142,8 +147,6 @@ plugins.PolyLineTextPath(
     offset=8,  # You might need to adjust this offset depending on the weight of the line
     attributes={'fill': 'gray', 'font-weight': 'bold', 'font-size': '24'}
 ).add_to(m)
-
-
 print("Start Point:", start_point)  # Debug print
 print("End Point:", end_point)  # Debug print
 
@@ -161,6 +164,24 @@ end_marker = folium.Marker(
     icon=folium.Icon(color='red')
 )
 end_marker.add_to(m)
+
+
+# Define the HTML for the legend
+legend_html = f'''
+<div style="position: fixed; 
+     bottom: 50px; left: 50px; width: 150px; height: 90px; 
+     border:2px solid grey; z-index:9999; font-size:14px;
+     background-color: white;
+     ">&nbsp; <b>Speed Legend</b> <br>
+     &nbsp; Red: > {speed_threshold * 3.6:.2f} km/h <br>
+     &nbsp; Blue: ≤ {speed_threshold * 3.6:.2f} km/h
+</div>
+'''  # Convert m/s to km/h for the legend
+
+# Create a folium.Element object and add it to the map
+legend_element = folium.Element(legend_html)
+m.get_root().html.add_child(legend_element)
+
 
 # Save and show the map
 map_filename = 'surfr_route_map.html'
